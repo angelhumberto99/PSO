@@ -1,18 +1,7 @@
 import random
-import math
 import matplotlib.pyplot as plt
 import numpy as np
   
-# parametros
-bounds = [(-10, 10), (-10, 10)]  # rangos de la función absoluta
-nv = 2  # numero de variables
-initial_fitness = float("inf") # valor inicial de las particulas
-particle_size = 50  # cantidad de particulas
-gen = 100  # numero maximo de generaciones
-w = 0.75  # constante de inercia
-c1 = 1  # tasa cognitiva
-c2 = 2  # tasa social
-
 def plot(x, y, title):
     fig = plt.figure(figsize=(5, 5))
     fig.tight_layout()
@@ -22,81 +11,102 @@ def plot(x, y, title):
     plt.show()
 
 class Particle:
-    def __init__(self, bounds):
-        self.position = []
-        self.velocity = []
-        self.l_best = []  # mejores posiciones de la particula
-        self.fitness_l_best = initial_fitness  # initial objective function value of the best particle position
-        self.fitness_position = initial_fitness  # objective function value of the particle position
-  
-        for i in range(nv):
-            self.position.append(
-                random.uniform(bounds[i][0], bounds[i][1]))  # genera posiciones aleatorias
-            self.velocity.append(random.uniform(-1, 1))  # genera velocidades iniciales aleatorias
+    def __init__(self, cognitive, social, inertia, bound):
+        # miembros privados
+        self.__c1 = cognitive  # tasa cognitiva
+        self.__c2 = social  # tasa social
+        self.__w = inertia # tasa de inercia
+        self.__min_pos = bound[0]
+        self.__max_pos = bound[1]
+        # la velocidad maxima y minima esta definida por
+        # el 20% en la diferencia del rango de la función benchmark
+        self.__min_vel = -0.2 * (self.__max_pos - self.__min_pos)
+        self.__max_vel = -1 * self.__min_vel
+        self.__velocity = random.uniform(-1, 1) # velocidad aleatoria entre -1 y 1
+        self.__lbest = []  # mejores posiciones locales de la particula
+        self.__lbest_fitness = float("inf")  # valor "fitness" de la mejor posición local
+        self.__iter = 0 # iterador
+
+        # miembros publicos
+        self.position = random.uniform(self.__min_pos, self.__max_pos)
+        self.current_fitness = float("inf")  # valor "fitness" de la posición por generación
     
-    def fitness(self, X):
-        return np.sum(np.abs(np.array(X)))
+    # función absoluta (absolute function)
+    def benchmark(self, x):
+        return np.sum(np.abs(np.array(x)))
   
-    def evaluate(self):
-        self.fitness_position = self.fitness(self.position)
+    def selection(self):
+        # obtenemos el costo de la posición actual
+        self.current_fitness = self.benchmark(self.position)
         # comparamos la posición actual con la mejor particula local
-        if self.fitness_position < self.fitness_l_best:
-            self.l_best = self.position
-            self.fitness_l_best = self.fitness_position
+        if self.current_fitness < self.__lbest_fitness:
+            self.__lbest = self.position
+            self.__lbest_fitness = self.current_fitness
 
-    def update_velocity(self, g_best):
-        for i in range(nv):
-            r1 = random.random()
-            r2 = random.random()
-            cognitive_velocity = c1 * r1 * (self.l_best[i] - self.position[i])
-            social_velocity = c2 * r2 * (g_best[i] - self.position[i])
-            self.velocity[i] = w * self.velocity[i] + cognitive_velocity + social_velocity
+    def update_velocity(self, gbest):
+        r1 = random.random()
+        r2 = random.random()
+        c = self.__c1 * r1 * (self.__lbest - self.position)
+        s = self.__c2 * r2 * (gbest - self.position)
+        self.__velocity = self.__w[self.__iter] * self.__velocity + c + s
+        self.__iter += 1
+        # evitamos que se salga del rango
+        if self.__velocity > self.__max_vel:
+            self.__velocity = self.__max_vel
+        if self.__velocity < self.__min_vel:
+            self.__velocity = self.__min_vel
 
-    def update_position(self, bounds):
-        for i in range(nv):
-            self.position[i] = self.position[i] + self.velocity[i]
-            maxPos = bounds[i][1]
-            minPos = bounds[i][0]
-
-            if self.position[i] > maxPos:
-                self.position[i] = maxPos
-            if self.position[i] < minPos:
-                self.position[i] = minPos
+    def update_position(self):
+        self.position = self.position + self.__velocity
+        # evitamos que se salga del rango
+        if self.position > self.__max_pos:
+            self.position = self.__max_pos
+        if self.position < self.__min_pos:
+            self.position = self.__min_pos
 
 def main():
+    # parametros
+    particle_amount = 50  # cantidad de particulas
+    gen = 100  # número maximo de generaciones
+    c1 = 1 # tasa cognitiva
+    c2 = 2 # tasa social
+    # la inercia disminuira paulatinamente hasta llegar a 0.4
+    w = np.linspace(0.9,0.4,gen) # tasa de inercia
+    bound = (-10, 10) # rango de la función absoluta
+
     # guarda el valor "fitness" de la mejor posición
-    fitness_g_best = initial_fitness
+    gbest_fitness = float("inf")
+
     # guarda las mejores posiciones encontradas
-    g_best = []
+    gbest = float("inf")
+
     # representa todas las particulas
-    swarm_particle = []
+    particles = []
     y = []
     x = list(range(gen))
 
     # creamos las particulas
-    for i in range(particle_size):
-        swarm_particle.append(Particle(bounds))
+    for i in range(particle_amount):
+        particles.append(Particle(c1, c2, w, bound))
 
     # generaciones
     for i in range(gen):
         # iteramos por cada particula
-        for j in range(particle_size):
-            swarm_particle[j].evaluate()
+        for j in range(particle_amount):
+            particles[j].selection()
             # revisamos si la posición actual es mejor que la posición global
-            if swarm_particle[j].fitness_position < fitness_g_best:
-                g_best = list(swarm_particle[j].position)
-                fitness_g_best = float(swarm_particle[j].fitness_position)
+            if particles[j].current_fitness < gbest_fitness:
+                gbest = particles[j].position
+                gbest_fitness = float(particles[j].current_fitness)
         # actualizamos posiciones y velocidades
-        for k in range(particle_size):
-            swarm_particle[k].update_velocity(g_best)
-            swarm_particle[k].update_position(bounds)
+        for k in range(particle_amount):
+            particles[k].update_velocity(gbest)
+            particles[k].update_position()
         # añadimos el mejor valor global para ser graficado
-        y.append(fitness_g_best)
+        y.append(gbest_fitness)
 
-    
-
-    print("Solución optima: ", g_best)
-    print("Valor de la función objetivo: ", fitness_g_best)
+    print("Solución optima: ", gbest)
+    print("Mejor valor global: ", gbest_fitness)
     plot(x,y,"PSO")
 
 if __name__ == "__main__":
